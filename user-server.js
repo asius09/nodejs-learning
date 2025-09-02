@@ -21,7 +21,8 @@ async function getUsers() {
   return userObjects;
 }
 async function writeUsers(data) {
-  await fs.appendFile("user.txt", `${data.name} ${data.email} ${data.date}\n`);
+  console.log("Writing Data", data);
+  await fs.appendFile("user.txt", `${data.name},${data.email},${data.date}\n`);
 }
 
 getUsers();
@@ -30,20 +31,41 @@ getUsers();
 // accept JSON only
 // logs into file.
 
-const server = http.createServer(async (req, res) => {
-  // middleware check if the req has json or not.
+const server = http.createServer((req, res) => {
   if (req.url === "/api/users" && req.method === "GET") {
     //sends list of user's
-    const data = await getUsers();
-    sendJSON(res, 200, data);
+    getUsers()
+      .then((data) => {
+        sendJSON(res, 200, data);
+      })
+      .catch((err) => {
+        sendJSON(res, 500, { error: "Failed to get users" });
+      });
   } else if (req.url === "/api/users" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk.toString();
     });
-    console.log(body);
-    await writeUsers(body);
-    sendJSON(res, 200, { success: true });
+    req.on("end", async () => {
+      try {
+        let userData;
+        try {
+          userData = JSON.parse(body);
+        } catch (e) {
+          sendJSON(res, 400, { error: "Invalid JSON" });
+          return;
+        }
+        // Validate required fields
+        if (!userData.name || !userData.email || !userData.date) {
+          sendJSON(res, 400, { error: "Missing required fields" });
+          return;
+        }
+        await writeUsers(userData);
+        sendJSON(res, 200, { success: true });
+      } catch (err) {
+        sendJSON(res, 500, { error: "Failed to write user" });
+      }
+    });
   } else {
     sendJSON(res, 404, null);
   }
