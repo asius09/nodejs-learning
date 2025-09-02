@@ -76,7 +76,9 @@ async function createTask(createTask) {
   console.log("Creating task:", createTask);
   const { task } = createTask;
   try {
-    await fs.appendFile(PATH, `${new Date().toISOString()},${task}\n`);
+    const taskId = new Date().toISOString();
+    await fs.appendFile(PATH, `${taskId},${task}\n`);
+    return { id: taskId, task: task };
   } catch (err) {
     console.error("Error appending task:", err);
     throw err;
@@ -112,54 +114,75 @@ async function deleteTask(taskId) {
     throw err;
   }
 }
+// METHODS
+async function getHandler(req, res) {
+  const tasks = await getTasks();
+  if (tasks.length > 0) {
+    sendJSON(res, tasks, 200);
+  } else {
+    console.log("No tasks present.");
+    sendJSON(res, { message: "NO TASK PRESENT" }, 200);
+  }
+}
+
+async function postHandler(req, res) {
+  const task = await parseBody(req, res);
+  if (!task || !task.task) {
+    console.error("POST /api/tasks: Missing required fields");
+    sendJSON(res, { error: "Missing required fields" }, 400);
+    return;
+  }
+  const response = await createTask(task);
+  sendJSON(res, { success: true, data: response }, 201);
+}
+
+async function deleteHandler(req, res) {
+  console.log(`http://${req.headers.host}`);
+  console.log(`Request Url`, req.url);
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const id = url.searchParams.get("id");
+  console.log("post Id ", id);
+  if (!id) {
+    console.error("DELETE /api/tasks: Missing required fields");
+    sendJSON(res, { error: "Missing required fields" }, 400);
+    return;
+  }
+  await deleteTask(id);
+  sendJSON(res, { success: true }, 200);
+}
+
+async function putHandler(req, res) {
+  const task = await parseBody(req, res);
+  if (!task || !task.id || !task.task) {
+    if (task !== null) {
+      console.error("PUT /api/tasks: Missing required fields");
+      sendJSON(res, { error: "Missing required fields" }, 400);
+    }
+    return;
+  }
+  await updateTask(task);
+  sendJSON(res, { success: true }, 200);
+}
+
+const routes = {
+  GET: getHandler,
+  POST: postHandler,
+  PUT: putHandler,
+  DELETE: deleteHandler,
+};
 
 //now create server
 const server = http.createServer(async (req, res) => {
-  console.log(`Received request: ${req.method} ${req.url}`);
-
   try {
-    if (req.url === "/api/tasks" && req.method === "GET") {
-      const tasks = await getTasks();
-      if (tasks.length > 0) {
-        sendJSON(res, tasks, 200);
+    const url = req.url;
+    if (url.startsWith("/api/tasks")) {
+      const method = req.method;
+      if (routes[method]) {
+        routes[method](req, res);
       } else {
-        console.log("No tasks present.");
-        sendJSON(res, { message: "NO TASK PRESENT" }, 200);
+        console.warn("Method not allowed:", method, url);
+        sendJSON(res, { error: "Method Not Allowed" }, 405);
       }
-    } else if (req.url === "/api/tasks" && req.method === "POST") {
-      const task = await parseBody(req, res);
-      if (!task || !task.id || !task.task) {
-        if (task !== null) {
-          // Only send error if not already sent by parseBody
-          console.error("POST /api/tasks: Missing required fields");
-          sendJSON(res, { error: "Missing required fields" }, 400);
-        }
-        return;
-      }
-      await createTask(task);
-      sendJSON(res, { success: true }, 201);
-    } else if (req.url === "/api/tasks" && req.method === "PUT") {
-      const task = await parseBody(req, res);
-      if (!task || !task.id || !task.task) {
-        if (task !== null) {
-          console.error("PUT /api/tasks: Missing required fields");
-          sendJSON(res, { error: "Missing required fields" }, 400);
-        }
-        return;
-      }
-      await updateTask(task);
-      sendJSON(res, { success: true }, 200);
-    } else if (req.url === "/api/tasks" && req.method === "DELETE") {
-      const task = await parseBody(req, res);
-      if (!task || !task.id) {
-        if (task !== null) {
-          console.error("DELETE /api/tasks: Missing required fields");
-          sendJSON(res, { error: "Missing required fields" }, 400);
-        }
-        return;
-      }
-      await deleteTask(task.id);
-      sendJSON(res, { success: true }, 200);
     } else {
       console.warn("Route not found:", req.method, req.url);
       sendJSON(res, { error: "NOT FOUND" }, 404);
